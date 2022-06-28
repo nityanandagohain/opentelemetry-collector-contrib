@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package clickhouseexporter // import "github.com/open-telemetry/opentelemetry-collector-contrib/exporter/clickhouseexporter"
+package clickhouselogsexporter // import "github.com/open-telemetry/opentelemetry-collector-contrib/exporter/clickhouselogsexporter"
 
 import (
 	"context"
@@ -27,7 +27,7 @@ import (
 	"go.uber.org/zap"
 )
 
-type clickhouseExporter struct {
+type clickhouseLogsExporter struct {
 	client        *sql.DB
 	insertLogsSQL string
 
@@ -35,7 +35,7 @@ type clickhouseExporter struct {
 	cfg    *Config
 }
 
-func newExporter(logger *zap.Logger, cfg *Config) (*clickhouseExporter, error) {
+func newExporter(logger *zap.Logger, cfg *Config) (*clickhouseLogsExporter, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
@@ -47,7 +47,7 @@ func newExporter(logger *zap.Logger, cfg *Config) (*clickhouseExporter, error) {
 
 	insertLogsSQL := renderInsertLogsSQL(cfg)
 
-	return &clickhouseExporter{
+	return &clickhouseLogsExporter{
 		client:        client,
 		insertLogsSQL: insertLogsSQL,
 		logger:        logger,
@@ -56,14 +56,14 @@ func newExporter(logger *zap.Logger, cfg *Config) (*clickhouseExporter, error) {
 }
 
 // Shutdown will shutdown the exporter.
-func (e *clickhouseExporter) Shutdown(_ context.Context) error {
+func (e *clickhouseLogsExporter) Shutdown(_ context.Context) error {
 	if e.client != nil {
 		return e.client.Close()
 	}
 	return nil
 }
 
-func (e *clickhouseExporter) pushLogsData(ctx context.Context, ld plog.Logs) error {
+func (e *clickhouseLogsExporter) pushLogsData(ctx context.Context, ld plog.Logs) error {
 	start := time.Now()
 	err := doWithTx(ctx, e.client, func(tx *sql.Tx) error {
 		statement, err := tx.PrepareContext(ctx, e.insertLogsSQL)

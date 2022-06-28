@@ -1,4 +1,4 @@
-module github.com/open-telemetry/opentelemetry-collector-contrib/exporter/clickhouseexporter
+module github.com/open-telemetry/opentelemetry-collector-contrib/exporter/clickhouselogsexporter
 
 go 1.17
 

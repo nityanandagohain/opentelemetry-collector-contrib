@@ -11,7 +11,7 @@ require (
 	github.com/open-telemetry/opentelemetry-collector-contrib/exporter/awsxrayexporter v0.54.0
 	github.com/open-telemetry/opentelemetry-collector-contrib/exporter/azuremonitorexporter v0.54.0
 	github.com/open-telemetry/opentelemetry-collector-contrib/exporter/carbonexporter v0.54.0
-	github.com/open-telemetry/opentelemetry-collector-contrib/exporter/clickhouseexporter v0.54.0
+	github.com/open-telemetry/opentelemetry-collector-contrib/exporter/clickhouselogsexporter v0.54.0
 	github.com/open-telemetry/opentelemetry-collector-contrib/exporter/coralogixexporter v0.54.0
 	github.com/open-telemetry/opentelemetry-collector-contrib/exporter/datadogexporter v0.54.0
 	github.com/open-telemetry/opentelemetry-collector-contrib/exporter/dynatraceexporter v0.54.0
@@ -601,7 +601,7 @@ replace github.com/open-telemetry/opentelemetry-collector-contrib/exporter/azure
 
 replace github.com/open-telemetry/opentelemetry-collector-contrib/exporter/carbonexporter => ./exporter/carbonexporter
 
-replace github.com/open-telemetry/opentelemetry-collector-contrib/exporter/clickhouseexporter => ./exporter/clickhouseexporter
+replace github.com/open-telemetry/opentelemetry-collector-contrib/exporter/clickhouselogsexporter => ./exporter/clickhouselogsexporter
 
 replace github.com/open-telemetry/opentelemetry-collector-contrib/exporter/coralogixexporter => ./exporter/coralogixexporter
 

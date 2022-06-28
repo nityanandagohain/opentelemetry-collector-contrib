@@ -42,7 +42,7 @@ import (
 	"github.com/open-telemetry/opentelemetry-collector-contrib/exporter/awsxrayexporter"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/exporter/azuremonitorexporter"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/exporter/carbonexporter"
-	"github.com/open-telemetry/opentelemetry-collector-contrib/exporter/clickhouseexporter"
+	"github.com/open-telemetry/opentelemetry-collector-contrib/exporter/clickhouselogsexporter"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/exporter/coralogixexporter"
 	ddconf "github.com/open-telemetry/opentelemetry-collector-contrib/exporter/datadogexporter/config"
 	dtconf "github.com/open-telemetry/opentelemetry-collector-contrib/exporter/dynatraceexporter/config"
@@ -280,7 +280,7 @@ func TestDefaultExporters(t *testing.T) {
 		{
 			exporter: "clickhouse",
 			getConfigFn: func() config.Exporter {
-				cfg := expFactories["clickhouse"].CreateDefaultConfig().(*clickhouseexporter.Config)
+				cfg := expFactories["clickhouse"].CreateDefaultConfig().(*clickhouselogsexporter.Config)
 				cfg.DSN = "clickhouse://" + endpoint
 				return cfg
 			},

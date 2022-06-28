@@ -63,7 +63,7 @@ updates:
     schedule:
       interval: "weekly"
   - package-ecosystem: "gomod"
-    directory: "/exporter/clickhouseexporter"
+    directory: "/exporter/clickhouselogsexporter"
     schedule:
       interval: "weekly"
   - package-ecosystem: "gomod"

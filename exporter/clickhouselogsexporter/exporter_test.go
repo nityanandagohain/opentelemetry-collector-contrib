@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package clickhouseexporter
+package clickhouselogsexporter
 
 import (
 	"context"
@@ -31,15 +31,15 @@ import (
 )
 
 func TestExporter_New(t *testing.T) {
-	type validate func(*testing.T, *clickhouseExporter, error)
+	type validate func(*testing.T, *clickhouseLogsExporter, error)
 
-	_ = func(t *testing.T, exporter *clickhouseExporter, err error) {
+	_ = func(t *testing.T, exporter *clickhouseLogsExporter, err error) {
 		require.Nil(t, err)
 		require.NotNil(t, exporter)
 	}
 
 	failWith := func(want error) validate {
-		return func(t *testing.T, exporter *clickhouseExporter, err error) {
+		return func(t *testing.T, exporter *clickhouseLogsExporter, err error) {
 			require.Nil(t, exporter)
 			require.NotNil(t, err)
 			if !errors.Is(err, want) {
@@ -49,7 +49,7 @@ func TestExporter_New(t *testing.T) {
 	}
 
 	_ = func(msg string) validate {
-		return func(t *testing.T, exporter *clickhouseExporter, err error) {
+		return func(t *testing.T, exporter *clickhouseLogsExporter, err error) {
 			require.Nil(t, exporter)
 			require.NotNil(t, err)
 			require.Contains(t, err.Error(), msg)
@@ -104,7 +104,7 @@ func TestExporter_pushLogsData(t *testing.T) {
 	})
 }
 
-func newTestExporter(t *testing.T, dsn string, fns ...func(*Config)) *clickhouseExporter {
+func newTestExporter(t *testing.T, dsn string, fns ...func(*Config)) *clickhouseLogsExporter {
 	exporter, err := newExporter(zaptest.NewLogger(t), withTestExporterConfig(fns...)(dsn))
 	require.NoError(t, err)
 
@@ -135,7 +135,7 @@ func simpleLogs(count int) plog.Logs {
 	return logs
 }
 
-func mustPushLogsData(t *testing.T, exporter *clickhouseExporter, ld plog.Logs) {
+func mustPushLogsData(t *testing.T, exporter *clickhouseLogsExporter, ld plog.Logs) {
 	err := exporter.pushLogsData(context.TODO(), ld)
 	require.NoError(t, err)
 }
