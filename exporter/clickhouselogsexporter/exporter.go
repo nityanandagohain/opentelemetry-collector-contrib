@@ -17,11 +17,12 @@ package clickhouselogsexporter // import "github.com/open-telemetry/opentelemetr
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 
-	_ "github.com/ClickHouse/clickhouse-go" // For register database driver.
+	_ "github.com/ClickHouse/clickhouse-go/v2"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/plog"
 	"go.uber.org/zap"
@@ -76,24 +77,22 @@ func (e *clickhouseLogsExporter) pushLogsData(ctx context.Context, ld plog.Logs)
 		for i := 0; i < ld.ResourceLogs().Len(); i++ {
 			logs := ld.ResourceLogs().At(i)
 			res := logs.Resource()
-			resourceKeys, resourceValues := attributesToSlice(res.Attributes())
+			resources := attributesToJSONString(res.Attributes())
 			for j := 0; j < logs.ScopeLogs().Len(); j++ {
 				rs := logs.ScopeLogs().At(j).LogRecords()
 				for k := 0; k < rs.Len(); k++ {
 					r := rs.At(k)
-					attrKeys, attrValues := attributesToSlice(r.Attributes())
+					attrs := attributesToJSONString(r.Attributes())
 					_, err = statement.ExecContext(ctx,
 						r.Timestamp().AsTime(),
 						r.TraceID().HexString(),
 						r.SpanID().HexString(),
 						r.Flags(),
 						r.SeverityText(),
-						r.SeverityNumber(),
+						int32(r.SeverityNumber()),
 						r.Body().AsString(),
-						resourceKeys,
-						resourceValues,
-						attrKeys,
-						attrValues,
+						resources,
+						attrs,
 					)
 					if err != nil {
 						return fmt.Errorf("ExecContext:%w", err)
@@ -109,15 +108,35 @@ func (e *clickhouseLogsExporter) pushLogsData(ctx context.Context, ld plog.Logs)
 	return err
 }
 
-func attributesToSlice(attributes pcommon.Map) ([]string, []string) {
-	keys := make([]string, 0, attributes.Len())
-	values := make([]string, 0, attributes.Len())
+func attributesToJSONString(attributes pcommon.Map) string {
+	attributesMap := make(map[string]interface{})
 	attributes.Range(func(k string, v pcommon.Value) bool {
-		keys = append(keys, formatKey(k))
-		values = append(values, v.AsString())
+		var val interface{}
+		switch v.Type().String() {
+		case "EMPTY":
+			val = nil
+		case "STRING":
+			val = v.StringVal()
+		case "BOOL":
+			val = v.BoolVal()
+		case "INT":
+			val = v.DoubleVal()
+		case "DOUBLE":
+			val = v.IntVal()
+		case "BYTESMAP":
+			val = v.BytesVal().AsRaw()
+		case "MAP":
+			val = v.MapVal().AsRaw()
+		case "SLICE":
+			val = v.SliceVal().AsRaw()
+		}
+		attributesMap[k] = val
 		return true
 	})
-	return keys, values
+
+	// marshalling it to string as clickhouse client gives error if emtyp map is passed
+	bytes, _ := json.Marshal(attributesMap)
+	return string(bytes)
 }
 
 func formatKey(k string) string {
@@ -135,18 +154,8 @@ CREATE TABLE IF NOT EXISTS %s (
      SeverityText LowCardinality(String) CODEC(ZSTD(1)),
      SeverityNumber Int32,
      Body String CODEC(ZSTD(1)),
-     ResourceAttributes Nested
-     (
-         Key LowCardinality(String),
-         Value String
-     ) CODEC(ZSTD(1)),
-     LogAttributes Nested
-     (
-         Key LowCardinality(String),
-         Value String
-     ) CODEC(ZSTD(1)),
-     INDEX idx_attr_keys ResourceAttributes.Key TYPE bloom_filter(0.01) GRANULARITY 64,
-     INDEX idx_res_keys LogAttributes.Key TYPE bloom_filter(0.01) GRANULARITY 64
+     ResourceAttributes JSON CODEC(ZSTD(1)),
+     LogAttributes JSON CODEC(ZSTD(1))
 ) ENGINE MergeTree()
 %s
 PARTITION BY toDate(Timestamp)
@@ -161,13 +170,9 @@ ORDER BY (toUnixTimestamp(Timestamp));
                         SeverityText,
                         SeverityNumber,
                         Body,
-                        ResourceAttributes.Key,
-                        ResourceAttributes.Value,
-                        LogAttributes.Key, 
-                        LogAttributes.Value
+                        ResourceAttributes,
+                        LogAttributes
                         ) VALUES (
-                                  ?,
-                                  ?,
                                   ?,
                                   ?,
                                   ?,
@@ -189,6 +194,12 @@ func newClickhouseClient(cfg *Config) (*sql.DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("sql.Open:%w", err)
 	}
+
+	// allow experimental
+	if _, err := db.Exec("SET allow_experimental_object_type=1"); err != nil {
+		return nil, fmt.Errorf("exec create table sql: %w", err)
+	}
+
 	// create table
 	query := fmt.Sprintf(createLogsTableSQL, cfg.LogsTableName, "")
 	if cfg.TTLDays > 0 {
