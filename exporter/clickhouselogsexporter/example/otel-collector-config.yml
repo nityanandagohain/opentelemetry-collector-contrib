@@ -4,7 +4,7 @@ receivers:
 
 processors:
   batch:
-    send_batch_size: 100000
+    send_batch_size: 100
     timeout: 2s
   memory_limiter:
     check_interval: 2s
@@ -12,7 +12,7 @@ processors:
     spike_limit_mib: 500
 
 exporters:
-  clickhouse:
+  clickhouselogsexporter:
     dsn: tcp://clickhouse:9000?database=default
     ttl_days: 3
     timeout: 5s
@@ -36,4 +36,4 @@ service:
     logs:
       receivers: [ fluentforward ]
       processors: [ memory_limiter, batch ]
-      exporters: [ clickhouse ]
+      exporters: [  clickhouselogsexporter ]

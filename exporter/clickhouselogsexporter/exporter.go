@@ -23,6 +23,7 @@ import (
 	"time"
 
 	_ "github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/segmentio/ksuid"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/plog"
 	"go.uber.org/zap"
@@ -34,6 +35,7 @@ type clickhouseLogsExporter struct {
 
 	logger *zap.Logger
 	cfg    *Config
+	ksuid  ksuid.KSUID
 }
 
 func newExporter(logger *zap.Logger, cfg *Config) (*clickhouseLogsExporter, error) {
@@ -77,22 +79,28 @@ func (e *clickhouseLogsExporter) pushLogsData(ctx context.Context, ld plog.Logs)
 		for i := 0; i < ld.ResourceLogs().Len(); i++ {
 			logs := ld.ResourceLogs().At(i)
 			res := logs.Resource()
-			resources := attributesToJSONString(res.Attributes())
+			// resources := attributesToJSONString(res.Attributes())
+			resourceKeys, resourceValues := attributesToSlice(res.Attributes())
+
 			for j := 0; j < logs.ScopeLogs().Len(); j++ {
 				rs := logs.ScopeLogs().At(j).LogRecords()
 				for k := 0; k < rs.Len(); k++ {
 					r := rs.At(k)
-					attrs := attributesToJSONString(r.Attributes())
+					// attrs := attributesToJSONString(r.Attributes())
+					attrKeys, attrValues := attributesToSlice(r.Attributes())
 					_, err = statement.ExecContext(ctx,
 						r.Timestamp().AsTime(),
+						ksuid.New().String(),
 						r.TraceID().HexString(),
 						r.SpanID().HexString(),
 						r.Flags(),
 						r.SeverityText(),
 						int32(r.SeverityNumber()),
 						r.Body().AsString(),
-						resources,
-						attrs,
+						resourceKeys,
+						resourceValues,
+						attrKeys,
+						attrValues,
 					)
 					if err != nil {
 						return fmt.Errorf("ExecContext:%w", err)
@@ -108,6 +116,17 @@ func (e *clickhouseLogsExporter) pushLogsData(ctx context.Context, ld plog.Logs)
 	return err
 }
 
+func attributesToSlice(attributes pcommon.Map) ([]string, []string) {
+	keys := make([]string, 0, attributes.Len())
+	values := make([]string, 0, attributes.Len())
+	attributes.Range(func(k string, v pcommon.Value) bool {
+		keys = append(keys, formatKey(k))
+		values = append(values, v.AsString())
+		return true
+	})
+	return keys, values
+}
+
 func attributesToJSONString(attributes pcommon.Map) string {
 	attributesMap := make(map[string]interface{})
 	attributes.Range(func(k string, v pcommon.Value) bool {
@@ -120,9 +139,9 @@ func attributesToJSONString(attributes pcommon.Map) string {
 		case "BOOL":
 			val = v.BoolVal()
 		case "INT":
-			val = v.DoubleVal()
-		case "DOUBLE":
 			val = v.IntVal()
+		case "DOUBLE":
+			val = v.DoubleVal()
 		case "BYTESMAP":
 			val = v.BytesVal().AsRaw()
 		case "MAP":
@@ -148,32 +167,45 @@ const (
 	createLogsTableSQL = `
 CREATE TABLE IF NOT EXISTS %s (
      Timestamp DateTime CODEC(Delta, ZSTD(1)),
+	 Id String CODEC(ZSTD(1)),
      TraceId String CODEC(ZSTD(1)),
      SpanId String CODEC(ZSTD(1)),
      TraceFlags UInt32,
      SeverityText LowCardinality(String) CODEC(ZSTD(1)),
      SeverityNumber Int32,
      Body String CODEC(ZSTD(1)),
-     ResourceAttributes JSON CODEC(ZSTD(1)),
-     LogAttributes JSON CODEC(ZSTD(1))
+     ResourceAttributes Nested
+      (
+          Key LowCardinality(String),
+          Value String
+      ) CODEC(ZSTD(1)),
+	LogAttributes Nested
+	(
+		Key LowCardinality(String),
+		Value String
+	) CODEC(ZSTD(1))
 ) ENGINE MergeTree()
 %s
 PARTITION BY toDate(Timestamp)
-ORDER BY (toUnixTimestamp(Timestamp));
+ORDER BY (toUnixTimestamp(Timestamp), Id);
 `
 	// language=ClickHouse SQL
 	insertLogsSQLTemplate = `INSERT INTO %s (
                         Timestamp,
+						Id,
                         TraceId,
                         SpanId,
                         TraceFlags,
                         SeverityText,
                         SeverityNumber,
                         Body,
-                        ResourceAttributes,
-                        LogAttributes
+                        ResourceAttributes.Key,
+						ResourceAttributes.Value,
+						LogAttributes.Key, 
+						LogAttributes.Value
                         ) VALUES (
                                   ?,
+								  ?,
                                   ?,
                                   ?,
                                   ?,
@@ -181,7 +213,9 @@ ORDER BY (toUnixTimestamp(Timestamp));
                                   ?,
                                   ?,
                                   ?,
-                                  ?
+                                  ?,
+								  ?,
+								  ?
                                   )`
 )
 
