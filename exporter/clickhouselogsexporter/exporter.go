@@ -17,7 +17,6 @@ package clickhouselogsexporter // import "github.com/open-telemetry/opentelemetr
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -79,17 +78,16 @@ func (e *clickhouseLogsExporter) pushLogsData(ctx context.Context, ld plog.Logs)
 		for i := 0; i < ld.ResourceLogs().Len(); i++ {
 			logs := ld.ResourceLogs().At(i)
 			res := logs.Resource()
-			// resources := attributesToJSONString(res.Attributes())
-			resourceKeys, resourceValues := attributesToSlice(res.Attributes())
+			resources := attributesToSlice(res.Attributes())
 
 			for j := 0; j < logs.ScopeLogs().Len(); j++ {
 				rs := logs.ScopeLogs().At(j).LogRecords()
 				for k := 0; k < rs.Len(); k++ {
 					r := rs.At(k)
-					// attrs := attributesToJSONString(r.Attributes())
-					attrKeys, attrValues := attributesToSlice(r.Attributes())
+					attributes := attributesToSlice(r.Attributes())
 					_, err = statement.ExecContext(ctx,
-						r.Timestamp().AsTime(),
+						uint64(r.Timestamp()/1000000),
+						uint64(r.ObservedTimestamp()/1000000),
 						ksuid.New().String(),
 						r.TraceID().HexString(),
 						r.SpanID().HexString(),
@@ -97,10 +95,14 @@ func (e *clickhouseLogsExporter) pushLogsData(ctx context.Context, ld plog.Logs)
 						r.SeverityText(),
 						int32(r.SeverityNumber()),
 						r.Body().AsString(),
-						resourceKeys,
-						resourceValues,
-						attrKeys,
-						attrValues,
+						resources.StringKeys,
+						resources.StringValues,
+						attributes.StringKeys,
+						attributes.StringValues,
+						attributes.IntKeys,
+						attributes.IntValues,
+						attributes.DoubleKeys,
+						attributes.DoubleValues,
 					)
 					if err != nil {
 						return fmt.Errorf("ExecContext:%w", err)
@@ -116,46 +118,31 @@ func (e *clickhouseLogsExporter) pushLogsData(ctx context.Context, ld plog.Logs)
 	return err
 }
 
-func attributesToSlice(attributes pcommon.Map) ([]string, []string) {
-	keys := make([]string, 0, attributes.Len())
-	values := make([]string, 0, attributes.Len())
-	attributes.Range(func(k string, v pcommon.Value) bool {
-		keys = append(keys, formatKey(k))
-		values = append(values, v.AsString())
-		return true
-	})
-	return keys, values
+type attributesToSliceResponse struct {
+	StringKeys   []string
+	StringValues []string
+	IntKeys      []string
+	IntValues    []int64
+	DoubleKeys   []string
+	DoubleValues []float64
 }
 
-func attributesToJSONString(attributes pcommon.Map) string {
-	attributesMap := make(map[string]interface{})
+func attributesToSlice(attributes pcommon.Map) (response attributesToSliceResponse) {
 	attributes.Range(func(k string, v pcommon.Value) bool {
-		var val interface{}
 		switch v.Type().String() {
-		case "EMPTY":
-			val = nil
-		case "STRING":
-			val = v.StringVal()
-		case "BOOL":
-			val = v.BoolVal()
 		case "INT":
-			val = v.IntVal()
+			response.IntKeys = append(response.IntKeys, formatKey(k))
+			response.IntValues = append(response.IntValues, v.IntVal())
 		case "DOUBLE":
-			val = v.DoubleVal()
-		case "BYTESMAP":
-			val = v.BytesVal().AsRaw()
-		case "MAP":
-			val = v.MapVal().AsRaw()
-		case "SLICE":
-			val = v.SliceVal().AsRaw()
+			response.DoubleKeys = append(response.DoubleKeys, formatKey(k))
+			response.DoubleValues = append(response.DoubleValues, v.DoubleVal())
+		default: // store it as string
+			response.StringKeys = append(response.StringKeys, formatKey(k))
+			response.StringValues = append(response.StringValues, v.AsString())
 		}
-		attributesMap[k] = val
 		return true
 	})
-
-	// marshalling it to string as clickhouse client gives error if emtyp map is passed
-	bytes, _ := json.Marshal(attributesMap)
-	return string(bytes)
+	return response
 }
 
 func formatKey(k string) string {
@@ -166,43 +153,52 @@ const (
 	// language=ClickHouse SQL
 	createLogsTableSQL = `
 CREATE TABLE IF NOT EXISTS %s (
-     Timestamp DateTime CODEC(Delta, ZSTD(1)),
-	 Id String CODEC(ZSTD(1)),
-     TraceId String CODEC(ZSTD(1)),
-     SpanId String CODEC(ZSTD(1)),
-     TraceFlags UInt32,
-     SeverityText LowCardinality(String) CODEC(ZSTD(1)),
-     SeverityNumber Int32,
-     Body String CODEC(ZSTD(1)),
-     ResourceAttributes Nested
-      (
-          Key LowCardinality(String),
-          Value String
-      ) CODEC(ZSTD(1)),
-	LogAttributes Nested
-	(
-		Key LowCardinality(String),
-		Value String
-	) CODEC(ZSTD(1))
+	timestamp UInt64 CODEC(Delta, ZSTD(1)),
+	observed_timestamp UInt64 CODEC(Delta, ZSTD(1)),
+	id String CODEC(ZSTD(1)),
+	trace_id String CODEC(ZSTD(1)),
+	span_id String CODEC(ZSTD(1)),
+	trace_flags UInt32,
+	severity_text LowCardinality(String) CODEC(ZSTD(1)),
+	severity_number Int32,
+	body String CODEC(ZSTD(1)),
+	resources_string_key Array(String) CODEC(ZSTD(1)),
+	resources_string_value Array(String) CODEC(ZSTD(1)),
+	attributes_string_key Array(String) CODEC(ZSTD(1)),
+	attributes_string_value Array(String) CODEC(ZSTD(1)),
+	attributes_int_key Array(String) CODEC(ZSTD(1)),
+	attributes_int_value Array(Int) CODEC(ZSTD(1)),
+	attributes_double_key Array(String) CODEC(ZSTD(1)),
+	attributes_double_value Array(Float64) CODEC(ZSTD(1))
 ) ENGINE MergeTree()
 %s
-PARTITION BY toDate(Timestamp)
-ORDER BY (toUnixTimestamp(Timestamp), Id);
+PARTITION BY toDate(timestamp / 1000)
+ORDER BY (toUnixTimestamp(toStartOfInterval(toDateTime(timestamp / 1000), INTERVAL 10 minute)), id)
 `
+	// ^ choosing a primary key https://kb.altinity.com/engines/mergetree-table-engine-family/pick-keys/
+	// 10 mins of logs with 300k logs ingested per sec will have max of 300 * 60 * 10 = 180000k logs
+	// max it will go to 180000k / 8192 = 21k blocks during an search if the search space is less than 10 minutes
+	// https://github.com/ClickHouse/ClickHouse/issues/11063#issuecomment-631517273
+
 	// language=ClickHouse SQL
 	insertLogsSQLTemplate = `INSERT INTO %s (
-                        Timestamp,
-						Id,
-                        TraceId,
-                        SpanId,
-                        TraceFlags,
-                        SeverityText,
-                        SeverityNumber,
-                        Body,
-                        ResourceAttributes.Key,
-						ResourceAttributes.Value,
-						LogAttributes.Key, 
-						LogAttributes.Value
+                        timestamp,
+						observed_timestamp,
+						id,
+                        trace_id,
+                        span_id,
+                        trace_flags,
+                        severity_text,
+                        severity_number,
+                        body,
+                        resources_string_key,
+						resources_string_value,
+						attributes_string_key, 
+						attributes_string_value,
+						attributes_int_key,
+						attributes_int_value,
+						attributes_double_key,
+						attributes_double_value
                         ) VALUES (
                                   ?,
 								  ?,
@@ -214,6 +210,11 @@ ORDER BY (toUnixTimestamp(Timestamp), Id);
                                   ?,
                                   ?,
                                   ?,
+								  ?,
+								  ?,
+								  ?,
+								  ?,
+								  ?,
 								  ?,
 								  ?
                                   )`
@@ -239,7 +240,7 @@ func newClickhouseClient(cfg *Config) (*sql.DB, error) {
 	if cfg.TTLDays > 0 {
 		query = fmt.Sprintf(createLogsTableSQL,
 			cfg.LogsTableName,
-			fmt.Sprintf(`TTL Timestamp + INTERVAL %d DAY`, cfg.TTLDays))
+			fmt.Sprintf(`TTL toDateTime(timestamp) + INTERVAL %d DAY`, cfg.TTLDays))
 	}
 	if _, err := db.Exec(query); err != nil {
 		return nil, fmt.Errorf("exec create table sql: %w", err)
