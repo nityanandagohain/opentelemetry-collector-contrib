@@ -180,6 +180,47 @@ ORDER BY (toUnixTimestamp(toStartOfInterval(toDateTime(timestamp / 1000), INTERV
 	// max it will go to 180000k / 8192 = 21k blocks during an search if the search space is less than 10 minutes
 	// https://github.com/ClickHouse/ClickHouse/issues/11063#issuecomment-631517273
 
+	createUniqueAttributeKeys = `
+CREATE TABLE IF NOT EXISTS logs_atrribute_keys (
+	name String,
+	type String
+)ENGINE = AggregatingMergeTree
+ORDER BY (name);
+
+CREATE TABLE IF NOT EXISTS logs_resource_keys (
+	name String,
+	type String
+)ENGINE = AggregatingMergeTree
+ORDER BY (name)
+	`
+
+	createMVQueres = `
+CREATE MATERIALIZED VIEW atrribute_keys_string_final_mv TO atrribute_keys AS
+SELECT
+	distinct arrayJoin(attributes.String.Key) as name, 'string' String  as datatype
+FROM otel_logs
+ORDER BY  name;
+
+CREATE MATERIALIZED VIEW atrribute_keys_int_final_mv TO atrribute_keys AS
+SELECT
+	distinct arrayJoin(attributes.Int.Key) as name, 'int' String as datatype
+FROM otel_logs
+ORDER BY  name;
+
+CREATE MATERIALIZED VIEW atrribute_keys_float_final_mv TO atrribute_keys AS
+SELECT
+	distinct arrayJoin(attributes.Float.Key) as name, 'float' String as datatype
+FROM otel_logs
+ORDER BY  name;
+
+
+CREATE MATERIALIZED VIEW resource_keys_string_final_mv TO resource_keys AS
+SELECT
+	distinct arrayJoin(resource.String.Key) as name, 'String' String as datatype
+FROM otel_logs
+ORDER BY  name
+	`
+
 	// language=ClickHouse SQL
 	insertLogsSQLTemplate = `INSERT INTO %s (
                         timestamp,
@@ -245,6 +286,21 @@ func newClickhouseClient(cfg *Config) (*sql.DB, error) {
 	if _, err := db.Exec(query); err != nil {
 		return nil, fmt.Errorf("exec create table sql: %w", err)
 	}
+
+	// create table for unique keys
+	for _, q := range strings.Split(createMVQueres, ";") {
+		if _, err := db.Exec(q); err != nil {
+			return nil, fmt.Errorf("exec create table sql: %w", err)
+		}
+	}
+
+	// create mv to populate above table
+	for _, q := range strings.Split(createMVQueres, ";") {
+		if _, err := db.Exec(q); err != nil {
+			return nil, fmt.Errorf("exec create mv sql: %w", err)
+		}
+	}
+
 	return db, nil
 }
 
