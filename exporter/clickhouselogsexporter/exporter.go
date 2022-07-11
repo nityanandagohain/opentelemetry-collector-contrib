@@ -221,7 +221,7 @@ func newClickhouseClient(logger *zap.Logger, cfg *Config) (*sql.DB, error) {
 		return nil, fmt.Errorf("Clickhouse Migrate failed to run, error: %s", err)
 	}
 	err = m.Up()
-	if err != nil {
+	if err != nil && !strings.HasSuffix(err.Error(), "no change") {
 		return nil, fmt.Errorf("Clickhouse Migrate failed to run, error: %s", err)
 	}
 

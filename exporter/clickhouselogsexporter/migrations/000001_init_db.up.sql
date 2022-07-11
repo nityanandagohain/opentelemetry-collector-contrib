@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS logs (
 	attributes_string_key Array(String) CODEC(ZSTD(1)),
 	attributes_string_value Array(String) CODEC(ZSTD(1)),
 	attributes_int_key Array(String) CODEC(ZSTD(1)),
-	attributes_int_value Array(Int) CODEC(ZSTD(1)),
+	attributes_int_value Array(Int64) CODEC(ZSTD(1)),
 	attributes_double_key Array(String) CODEC(ZSTD(1)),
 	attributes_double_value Array(Float64) CODEC(ZSTD(1))
 ) ENGINE MergeTree()
