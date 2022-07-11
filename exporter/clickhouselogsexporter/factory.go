@@ -25,7 +25,11 @@ import (
 
 const (
 	// The value of "type" key in configuration.
-	typeStr = "clickhouselogsexporter"
+	typeStr          = "clickhouselogsexporter"
+	primaryNamespace = "clickhouselogs"
+	archiveNamespace = "clickhouselogs-archive"
+	databaseName     = "signoz_logs"
+	tableName        = "logs"
 )
 
 // NewFactory creates a factory for Elastic exporter.
@@ -43,7 +47,9 @@ func createDefaultConfig() config.Exporter {
 		TimeoutSettings:  exporterhelper.NewDefaultTimeoutSettings(),
 		QueueSettings:    QueueSettings{QueueSize: exporterhelper.NewDefaultQueueSettings().QueueSize},
 		RetrySettings:    exporterhelper.NewDefaultRetrySettings(),
-		LogsTableName:    "otel_logs",
+		DatabaseName:     databaseName,
+		LogsTableName:    tableName,
+		Migrations:       "../../exporter/clickhouselogsexporter/migrations/",
 	}
 }
 

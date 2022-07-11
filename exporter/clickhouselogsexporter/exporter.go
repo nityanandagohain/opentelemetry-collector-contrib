@@ -18,10 +18,14 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
 	_ "github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/golang-migrate/migrate/v4"
+	_ "github.com/golang-migrate/migrate/v4/database/clickhouse"
+	_ "github.com/golang-migrate/migrate/v4/source/file"
 	"github.com/segmentio/ksuid"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/plog"
@@ -42,7 +46,7 @@ func newExporter(logger *zap.Logger, cfg *Config) (*clickhouseLogsExporter, erro
 		return nil, err
 	}
 
-	client, err := newClickhouseClient(cfg)
+	client, err := newClickhouseClient(logger, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -151,37 +155,7 @@ func formatKey(k string) string {
 
 const (
 	// language=ClickHouse SQL
-	createLogsTableSQL = `
-CREATE TABLE IF NOT EXISTS %s (
-	timestamp UInt64 CODEC(Delta, ZSTD(1)),
-	observed_timestamp UInt64 CODEC(Delta, ZSTD(1)),
-	id String CODEC(ZSTD(1)),
-	trace_id String CODEC(ZSTD(1)),
-	span_id String CODEC(ZSTD(1)),
-	trace_flags UInt32,
-	severity_text LowCardinality(String) CODEC(ZSTD(1)),
-	severity_number Int32,
-	body String CODEC(ZSTD(1)),
-	resources_string_key Array(String) CODEC(ZSTD(1)),
-	resources_string_value Array(String) CODEC(ZSTD(1)),
-	attributes_string_key Array(String) CODEC(ZSTD(1)),
-	attributes_string_value Array(String) CODEC(ZSTD(1)),
-	attributes_int_key Array(String) CODEC(ZSTD(1)),
-	attributes_int_value Array(Int) CODEC(ZSTD(1)),
-	attributes_double_key Array(String) CODEC(ZSTD(1)),
-	attributes_double_value Array(Float64) CODEC(ZSTD(1))
-) ENGINE MergeTree()
-%s
-PARTITION BY toDate(timestamp / 1000)
-ORDER BY (toUnixTimestamp(toStartOfInterval(toDateTime(timestamp / 1000), INTERVAL 10 minute)), id)
-`
-	// ^ choosing a primary key https://kb.altinity.com/engines/mergetree-table-engine-family/pick-keys/
-	// 10 mins of logs with 300k logs ingested per sec will have max of 300 * 60 * 10 = 180000k logs
-	// max it will go to 180000k / 8192 = 21k blocks during an search if the search space is less than 10 minutes
-	// https://github.com/ClickHouse/ClickHouse/issues/11063#issuecomment-631517273
-
-	// language=ClickHouse SQL
-	insertLogsSQLTemplate = `INSERT INTO %s (
+	insertLogsSQLTemplate = `INSERT INTO %s.%s (
                         timestamp,
 						observed_timestamp,
 						id,
@@ -223,33 +197,68 @@ ORDER BY (toUnixTimestamp(toStartOfInterval(toDateTime(timestamp / 1000), INTERV
 var driverName = "clickhouse" // for testing
 
 // newClickhouseClient create a clickhouse client.
-func newClickhouseClient(cfg *Config) (*sql.DB, error) {
+func newClickhouseClient(logger *zap.Logger, cfg *Config) (*sql.DB, error) {
 	// use empty database to create database
 	db, err := sql.Open(driverName, cfg.DSN)
 	if err != nil {
 		return nil, fmt.Errorf("sql.Open:%w", err)
 	}
 
-	// allow experimental
-	if _, err := db.Exec("SET allow_experimental_object_type=1"); err != nil {
-		return nil, fmt.Errorf("exec create table sql: %w", err)
+	q := fmt.Sprintf("CREATE DATABASE IF NOT EXISTS %s", cfg.DatabaseName)
+	_, err = db.Exec(q)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create database, err: %s", err)
 	}
 
-	// create table
-	query := fmt.Sprintf(createLogsTableSQL, cfg.LogsTableName, "")
-	if cfg.TTLDays > 0 {
-		query = fmt.Sprintf(createLogsTableSQL,
-			cfg.LogsTableName,
-			fmt.Sprintf(`TTL toDateTime(timestamp) + INTERVAL %d DAY`, cfg.TTLDays))
+	// do the migration here
+	logger.Info("Running migrations from path: ", zap.Any("test", cfg.Migrations))
+	clickhouseUrl, err := buildClickhouseMigrateURL(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("Failed to build Clickhouse migrate URL, error: %s", err)
 	}
-	if _, err := db.Exec(query); err != nil {
-		return nil, fmt.Errorf("exec create table sql: %w", err)
+	m, err := migrate.New("file://"+cfg.Migrations, clickhouseUrl)
+	if err != nil {
+		return nil, fmt.Errorf("Clickhouse Migrate failed to run, error: %s", err)
 	}
+	err = m.Up()
+	if err != nil {
+		return nil, fmt.Errorf("Clickhouse Migrate failed to run, error: %s", err)
+	}
+
+	logger.Info("Clickhouse Migrate finished")
 	return db, nil
 }
 
+func buildClickhouseMigrateURL(cfg *Config) (string, error) {
+	// return fmt.Sprintf("clickhouse://localhost:9000?database=default&x-multi-statement=true"), nil
+	var clickhouseUrl string
+	database := cfg.DatabaseName
+	parsedURL, err := url.Parse(cfg.DSN)
+	if err != nil {
+		return "", err
+	}
+	host := parsedURL.Host
+	if host == "" {
+		return "", fmt.Errorf("Unable to parse host")
+
+	}
+	paramMap, err := url.ParseQuery(parsedURL.RawQuery)
+	if err != nil {
+		return "", err
+	}
+	username := paramMap["username"]
+	password := paramMap["password"]
+
+	if len(username) > 0 && len(password) > 0 {
+		clickhouseUrl = fmt.Sprintf("clickhouse://%s:%s@%s/%s?x-multi-statement=true", username[0], password[0], host, database)
+	} else {
+		clickhouseUrl = fmt.Sprintf("clickhouse://%s/%s?x-multi-statement=true", host, database)
+	}
+	return clickhouseUrl, nil
+}
+
 func renderInsertLogsSQL(cfg *Config) string {
-	return fmt.Sprintf(insertLogsSQLTemplate, cfg.LogsTableName)
+	return fmt.Sprintf(insertLogsSQLTemplate, cfg.DatabaseName, cfg.LogsTableName)
 }
 
 func doWithTx(_ context.Context, db *sql.DB, fn func(tx *sql.Tx) error) error {
