@@ -12,10 +12,10 @@ CREATE TABLE IF NOT EXISTS logs (
 	resources_string_value Array(String) CODEC(ZSTD(1)),
 	attributes_string_key Array(String) CODEC(ZSTD(1)),
 	attributes_string_value Array(String) CODEC(ZSTD(1)),
-	attributes_int_key Array(String) CODEC(ZSTD(1)),
-	attributes_int_value Array(Int64) CODEC(ZSTD(1)),
-	attributes_double_key Array(String) CODEC(ZSTD(1)),
-	attributes_double_value Array(Float64) CODEC(ZSTD(1))
+	attributes_int64_key Array(String) CODEC(ZSTD(1)),
+	attributes_int64_value Array(Int64) CODEC(ZSTD(1)),
+	attributes_float64_key Array(String) CODEC(ZSTD(1)),
+	attributes_float64_value Array(Float64) CODEC(ZSTD(1))
 ) ENGINE MergeTree()
 PARTITION BY toDate(timestamp / 1000)
 ORDER BY (toUnixTimestamp(toStartOfInterval(toDateTime(timestamp / 1000), INTERVAL 10 minute)), id);
@@ -40,24 +40,24 @@ ORDER BY (name);
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS  atrribute_keys_string_final_mv TO logs_atrribute_keys AS
 SELECT
-distinct arrayJoin(attributes_string_key) as name, 'string' datatype
+distinct arrayJoin(attributes_string_key) as name, 'String' datatype
 FROM logs
 ORDER BY name;
 
-CREATE MATERIALIZED VIEW IF NOT EXISTS  atrribute_keys_int_final_mv TO logs_atrribute_keys AS
+CREATE MATERIALIZED VIEW IF NOT EXISTS  atrribute_keys_int64_final_mv TO logs_atrribute_keys AS
 SELECT
-distinct arrayJoin(attributes_int_key) as name, 'int' datatype
+distinct arrayJoin(attributes_int64_key) as name, 'Int64' datatype
 FROM logs
 ORDER BY  name;
 
-CREATE MATERIALIZED VIEW IF NOT EXISTS  atrribute_keys_double_final_mv TO logs_atrribute_keys AS
+CREATE MATERIALIZED VIEW IF NOT EXISTS  atrribute_keys_float64_final_mv TO logs_atrribute_keys AS
 SELECT
-distinct arrayJoin(attributes_double_key) as name, 'double' datatype
+distinct arrayJoin(attributes_float64_key) as name, 'Float64' datatype
 FROM logs
 ORDER BY  name;
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS  resource_keys_string_final_mv TO logs_resource_keys AS
 SELECT
-distinct arrayJoin(resources_string_key) as name, 'string' datatype
+distinct arrayJoin(resources_string_key) as name, 'String' datatype
 FROM logs
 ORDER BY  name;

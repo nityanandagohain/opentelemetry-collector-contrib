@@ -105,8 +105,8 @@ func (e *clickhouseLogsExporter) pushLogsData(ctx context.Context, ld plog.Logs)
 						attributes.StringValues,
 						attributes.IntKeys,
 						attributes.IntValues,
-						attributes.DoubleKeys,
-						attributes.DoubleValues,
+						attributes.FloatKeys,
+						attributes.FloatValues,
 					)
 					if err != nil {
 						return fmt.Errorf("ExecContext:%w", err)
@@ -127,8 +127,8 @@ type attributesToSliceResponse struct {
 	StringValues []string
 	IntKeys      []string
 	IntValues    []int64
-	DoubleKeys   []string
-	DoubleValues []float64
+	FloatKeys    []string
+	FloatValues  []float64
 }
 
 func attributesToSlice(attributes pcommon.Map) (response attributesToSliceResponse) {
@@ -138,8 +138,8 @@ func attributesToSlice(attributes pcommon.Map) (response attributesToSliceRespon
 			response.IntKeys = append(response.IntKeys, formatKey(k))
 			response.IntValues = append(response.IntValues, v.IntVal())
 		case "DOUBLE":
-			response.DoubleKeys = append(response.DoubleKeys, formatKey(k))
-			response.DoubleValues = append(response.DoubleValues, v.DoubleVal())
+			response.FloatKeys = append(response.FloatKeys, formatKey(k))
+			response.FloatValues = append(response.FloatValues, v.DoubleVal())
 		default: // store it as string
 			response.StringKeys = append(response.StringKeys, formatKey(k))
 			response.StringValues = append(response.StringValues, v.AsString())
@@ -169,10 +169,10 @@ const (
 						resources_string_value,
 						attributes_string_key, 
 						attributes_string_value,
-						attributes_int_key,
-						attributes_int_value,
-						attributes_double_key,
-						attributes_double_value
+						attributes_int64_key,
+						attributes_int64_value,
+						attributes_float64_key,
+						attributes_float64_value
                         ) VALUES (
                                   ?,
 								  ?,
