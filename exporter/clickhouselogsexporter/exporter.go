@@ -83,16 +83,21 @@ func (e *clickhouseLogsExporter) pushLogsData(ctx context.Context, ld plog.Logs)
 			logs := ld.ResourceLogs().At(i)
 			res := logs.Resource()
 			resources := attributesToSlice(res.Attributes())
-
 			for j := 0; j < logs.ScopeLogs().Len(); j++ {
 				rs := logs.ScopeLogs().At(j).LogRecords()
 				for k := 0; k < rs.Len(); k++ {
 					r := rs.At(k)
+
+					id, err := ksuid.NewRandomWithTime(r.Timestamp().AsTime())
+					if err != nil {
+						return fmt.Errorf("Error creating id: %w", err)
+					}
+
 					attributes := attributesToSlice(r.Attributes())
 					_, err = statement.ExecContext(ctx,
 						uint64(r.Timestamp()),
 						uint64(r.ObservedTimestamp()),
-						ksuid.New().String(),
+						id.String(),
 						r.TraceID().HexString(),
 						r.SpanID().HexString(),
 						r.Flags(),
@@ -112,6 +117,7 @@ func (e *clickhouseLogsExporter) pushLogsData(ctx context.Context, ld plog.Logs)
 						return fmt.Errorf("ExecContext:%w", err)
 					}
 				}
+				time.Sleep(2 * time.Second)
 			}
 		}
 		return nil
