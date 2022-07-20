@@ -90,8 +90,8 @@ func (e *clickhouseLogsExporter) pushLogsData(ctx context.Context, ld plog.Logs)
 					r := rs.At(k)
 					attributes := attributesToSlice(r.Attributes())
 					_, err = statement.ExecContext(ctx,
-						uint64(r.Timestamp()/1000000),
-						uint64(r.ObservedTimestamp()/1000000),
+						uint64(r.Timestamp()),
+						uint64(r.ObservedTimestamp()),
 						ksuid.New().String(),
 						r.TraceID().HexString(),
 						r.SpanID().HexString(),

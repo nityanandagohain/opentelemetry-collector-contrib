@@ -17,13 +17,8 @@ CREATE TABLE IF NOT EXISTS logs (
 	attributes_float64_key Array(String) CODEC(ZSTD(1)),
 	attributes_float64_value Array(Float64) CODEC(ZSTD(1))
 ) ENGINE MergeTree()
-PARTITION BY toDate(timestamp / 1000)
-ORDER BY (toUnixTimestamp(toStartOfInterval(toDateTime(timestamp / 1000), INTERVAL 10 minute)), id);
-
--- // ^ choosing a primary key https://kb.altinity.com/engines/mergetree-table-engine-family/pick-keys/
--- // 10 mins of logs with 300k logs ingested per sec will have max of 300 * 60 * 10 = 180000k logs
--- // max it will go to 180000k / 8192 = 21k blocks during an search if the search space is less than 10 minutes
--- // https://github.com/ClickHouse/ClickHouse/issues/11063#issuecomment-631517273
+PARTITION BY toDate(timestamp / 1000000000)
+ORDER BY (timestamp, id);
 
 
 CREATE TABLE IF NOT EXISTS logs_atrribute_keys (
